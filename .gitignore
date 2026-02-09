@@ -44,3 +44,7 @@ alembic/versions/__pycache__/
 
 # spaCy models (downloaded at runtime)
 models/
+
+# Frontend build output
+frontend/dist/
+frontend/node_modules/

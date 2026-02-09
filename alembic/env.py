@@ -10,7 +10,17 @@ from alembic import context
 
 from app.config import settings
 from app.database import Base
-from app.models.identity import AnalysisLog, Preference, PronounSet, User  # noqa: F401
+from app.models.identity import (  # noqa: F401
+    Account,
+    AnalysisLog,
+    AuditLogEntry,
+    CustomPronounSet,
+    InclusiveTemplate,
+    PolicySetting,
+    Preference,
+    PronounSet,
+    User,
+)
 
 config = context.config
 
