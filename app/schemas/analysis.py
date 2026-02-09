@@ -68,6 +68,7 @@ class PronounOccurrence(BaseModel):
     span: TextSpan
     pronoun_type: str  # subject, object, possessive, possessive_pronoun, reflexive
     resolved_entity: str | None = None  # who it refers to, if resolved
+    is_neo_pronoun: bool = False  # True if this is a neo-pronoun
 
 
 # ---------------------------------------------------------------------------

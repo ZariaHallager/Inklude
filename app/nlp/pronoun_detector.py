@@ -1,8 +1,11 @@
-"""Pronoun detection using spaCy POS tagging.
+"""Pronoun detection using spaCy POS tagging + neo-pronoun awareness.
 
 Identifies all pronoun tokens in text, classifies them by type
 (subject, object, possessive, reflexive), and maps each to a
 character span in the original text.
+
+Supports both traditional pronouns (he/she/they) and neo-pronouns
+(ze/hir, xe/xem, ey/em, fae/faer, etc.) via the neo-pronoun registry.
 """
 
 from __future__ import annotations
@@ -11,6 +14,8 @@ from dataclasses import dataclass
 
 import spacy
 from spacy.tokens import Doc, Token
+
+from app.nlp.neo_pronouns import classify_neo_pronoun, get_all_neo_tokens, is_neo_pronoun
 
 
 # ---------------------------------------------------------------------------
@@ -78,6 +83,19 @@ def _classify(token: Token) -> str | None:
     return None
 
 
+def _classify_neo(token_text: str) -> str | None:
+    """Classify a neo-pronoun token. Returns the pronoun type or None.
+
+    When a token maps to multiple neo-pronoun sets, we pick the first
+    classification (they'll agree on type in practice).
+    """
+    matches = classify_neo_pronoun(token_text)
+    if matches:
+        # Return the pronoun type from the first matching set
+        return matches[0][1]
+    return None
+
+
 # ---------------------------------------------------------------------------
 # Public dataclass & detector
 # ---------------------------------------------------------------------------
@@ -92,18 +110,44 @@ class PronounMatch:
     text: str  # original surface form
     pronoun_type: str  # subject | object | possessive | possessive_pronoun | reflexive
     lemma: str  # lowercased canonical form
+    is_neo_pronoun: bool = False  # True if this is a neo-pronoun
 
 
 class PronounDetector:
-    """Detects and classifies gendered / tracked pronouns in text."""
+    """Detects and classifies gendered / tracked / neo pronouns in text."""
 
     def __init__(self, nlp: spacy.language.Language) -> None:
         self._nlp = nlp
+        # Cache neo-pronoun tokens for fast lookup
+        self._neo_tokens = get_all_neo_tokens()
 
     def detect(self, doc: Doc) -> list[PronounMatch]:
-        """Return all tracked pronoun occurrences in *doc*."""
+        """Return all tracked pronoun occurrences in *doc*.
+
+        Checks both traditional pronouns (via spaCy POS tags) and
+        neo-pronouns (via the neo-pronoun registry token set).
+        """
         matches: list[PronounMatch] = []
         for token in doc:
+            lower = token.text.lower()
+
+            # --- Check neo-pronouns first (they won't have PRON POS) ---
+            if lower in self._neo_tokens:
+                ptype = _classify_neo(token.text)
+                if ptype is not None:
+                    matches.append(
+                        PronounMatch(
+                            start=token.idx,
+                            end=token.idx + len(token.text),
+                            text=token.text,
+                            pronoun_type=ptype,
+                            lemma=lower,
+                            is_neo_pronoun=True,
+                        )
+                    )
+                continue
+
+            # --- Standard pronoun detection ---
             if token.pos_ != "PRON":
                 # Also check PRP$ which spaCy sometimes tags as DET
                 if token.tag_ != "PRP$":
@@ -117,7 +161,8 @@ class PronounDetector:
                     end=token.idx + len(token.text),
                     text=token.text,
                     pronoun_type=ptype,
-                    lemma=token.text.lower(),
+                    lemma=lower,
+                    is_neo_pronoun=False,
                 )
             )
         return matches

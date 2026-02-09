@@ -132,6 +132,7 @@ class NLPEngine:
                     span=TextSpan(start=pm.start, end=pm.end, text=pm.text),
                     pronoun_type=pm.pronoun_type,
                     resolved_entity=resolved_map.get(pm.start),
+                    is_neo_pronoun=getattr(pm, "is_neo_pronoun", False),
                 )
             )
 
