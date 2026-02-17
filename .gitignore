@@ -27,6 +27,7 @@ venv/
 ENV/
 env/
 
+
 # IDEs
 .vscode/
 .idea/
@@ -76,3 +77,8 @@ alembic/versions/__pycache__/
 
 # Vercel
 .vercel
+
+# Deployment documentation
+QUICKSTART_VERCEL.md
+DEPLOYMENT_GUIDE.md
+DEPLOYMENT.md
