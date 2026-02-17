@@ -39,20 +39,32 @@ def google_login_url(state: str | None = None) -> str:
 
 async def google_callback(code: str, session: AsyncSession) -> Account:
     """Exchange the OAuth code for tokens and create/update the account."""
+    # #region agent log
+    import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:41","message":"Starting google_callback","data":{"has_code":bool(code),"client_id":settings.google_client_id[:20] if settings.google_client_id else None,"redirect_uri":settings.google_redirect_uri},"hypothesisId":"A,C"}) + '\n')
+    # #endregion
     # Exchange code for tokens
     async with httpx.AsyncClient() as client:
-        token_resp = await client.post(
-            GOOGLE_TOKEN_URL,
-            data={
-                "code": code,
-                "client_id": settings.google_client_id,
-                "client_secret": settings.google_client_secret,
-                "redirect_uri": settings.google_redirect_uri,
-                "grant_type": "authorization_code",
-            },
-        )
-        token_resp.raise_for_status()
-        tokens = token_resp.json()
+        try:
+            token_resp = await client.post(
+                GOOGLE_TOKEN_URL,
+                data={
+                    "code": code,
+                    "client_id": settings.google_client_id,
+                    "client_secret": settings.google_client_secret,
+                    "redirect_uri": settings.google_redirect_uri,
+                    "grant_type": "authorization_code",
+                },
+            )
+            # #region agent log
+            import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:54","message":"Token exchange response","data":{"status_code":token_resp.status_code,"has_content":bool(token_resp.content)},"hypothesisId":"A,E"}) + '\n')
+            # #endregion
+            token_resp.raise_for_status()
+            tokens = token_resp.json()
+        except Exception as e:
+            # #region agent log
+            import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:59","message":"Token exchange failed","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"A,E"}) + '\n')
+            # #endregion
+            raise
 
         # Get user info
         userinfo_resp = await client.get(
@@ -61,6 +73,9 @@ async def google_callback(code: str, session: AsyncSession) -> Account:
         )
         userinfo_resp.raise_for_status()
         userinfo = userinfo_resp.json()
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:69","message":"Got user info from Google","data":{"email":userinfo.get("email"),"has_id":bool(userinfo.get("id"))},"hypothesisId":"C"}) + '\n')
+        # #endregion
 
     google_id = userinfo["id"]
     email = userinfo["email"]
@@ -68,38 +83,71 @@ async def google_callback(code: str, session: AsyncSession) -> Account:
     avatar = userinfo.get("picture")
 
     # Find or create account
-    stmt = select(Account).where(Account.google_id == google_id)
-    result = await session.execute(stmt)
-    account = result.scalar_one_or_none()
+    try:
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:80","message":"Querying database for account","data":{"google_id":google_id,"email":email},"hypothesisId":"B"}) + '\n')
+        # #endregion
+        stmt = select(Account).where(Account.google_id == google_id)
+        result = await session.execute(stmt)
+        account = result.scalar_one_or_none()
+    except Exception as e:
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:87","message":"Database query failed","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"B"}) + '\n')
+        # #endregion
+        raise
 
     if account is None:
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:92","message":"Account not found by google_id, checking email","data":{"email":email},"hypothesisId":"B"}) + '\n')
+        # #endregion
         # Check if account exists by email
         stmt = select(Account).where(Account.email == email)
         result = await session.execute(stmt)
         account = result.scalar_one_or_none()
 
         if account is None:
+            # #region agent log
+            import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:101","message":"Creating new account","data":{"email":email,"name":name},"hypothesisId":"B"}) + '\n')
+            # #endregion
             # Check if this is the first account -> make admin
             count_stmt = select(Account)
             count_result = await session.execute(count_stmt)
             is_first = len(count_result.scalars().all()) == 0
 
-            account = Account(
-                email=email,
-                display_name=name,
-                avatar_url=avatar,
-                google_id=google_id,
-                role=AccountRole.SUPER_ADMIN if is_first else AccountRole.USER,
-            )
-            session.add(account)
+            try:
+                account = Account(
+                    email=email,
+                    display_name=name,
+                    avatar_url=avatar,
+                    google_id=google_id,
+                    role=AccountRole.SUPER_ADMIN if is_first else AccountRole.USER,
+                )
+                session.add(account)
+                # #region agent log
+                import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:118","message":"Account object created, added to session","data":{"is_first":is_first},"hypothesisId":"B"}) + '\n')
+                # #endregion
+            except Exception as e:
+                # #region agent log
+                import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:123","message":"Failed to create account","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"B"}) + '\n')
+                # #endregion
+                raise
         else:
             account.google_id = google_id
             account.avatar_url = avatar
 
     account.display_name = name
     account.last_login = datetime.now(timezone.utc)
-    await session.commit()
-    await session.refresh(account)
+    try:
+        await session.commit()
+        await session.refresh(account)
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:139","message":"Account committed to database","data":{"account_id":str(account.id),"email":account.email},"hypothesisId":"B"}) + '\n')
+        # #endregion
+    except Exception as e:
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/services/auth_service.py:144","message":"Database commit failed","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"B"}) + '\n')
+        # #endregion
+        raise
     return account
 
 

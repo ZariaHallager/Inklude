@@ -9,11 +9,14 @@ import {
   Check,
   AlertCircle,
   User,
+  BookOpen,
 } from 'lucide-react';
-import { identities } from '../lib/api';
-import type { Identity, PronounSet, Preference, Visibility } from '../lib/types';
-import { useAuth } from '../contexts/AuthContext';
+import { useQuery, useMutation } from 'convex/react';
+import { api } from '../../../convex/_generated/api';
+import type { Id, Doc } from '../../../convex/_generated/dataModel';
+import { useCurrentUser } from '../hooks/useCurrentUser';
 import PronounBadge from '../components/PronounBadge';
+import NeoPronounPicker from '../components/NeoPronounPicker';
 
 /* ------------------------------------------------------------------ */
 /*  Preset pronoun quick-picks                                         */
@@ -24,7 +27,7 @@ interface PronounPreset {
   subject: string;
   object: string;
   possessive: string;
-  possessive_pronoun: string;
+  possessivePronoun: string;
   reflexive: string;
 }
 
@@ -34,7 +37,7 @@ const PRESETS: PronounPreset[] = [
     subject: 'he',
     object: 'him',
     possessive: 'his',
-    possessive_pronoun: 'his',
+    possessivePronoun: 'his',
     reflexive: 'himself',
   },
   {
@@ -42,7 +45,7 @@ const PRESETS: PronounPreset[] = [
     subject: 'she',
     object: 'her',
     possessive: 'her',
-    possessive_pronoun: 'hers',
+    possessivePronoun: 'hers',
     reflexive: 'herself',
   },
   {
@@ -50,7 +53,7 @@ const PRESETS: PronounPreset[] = [
     subject: 'they',
     object: 'them',
     possessive: 'their',
-    possessive_pronoun: 'theirs',
+    possessivePronoun: 'theirs',
     reflexive: 'themselves',
   },
   {
@@ -58,7 +61,7 @@ const PRESETS: PronounPreset[] = [
     subject: 'ze',
     object: 'hir',
     possessive: 'hir',
-    possessive_pronoun: 'hirs',
+    possessivePronoun: 'hirs',
     reflexive: 'hirself',
   },
   {
@@ -66,7 +69,7 @@ const PRESETS: PronounPreset[] = [
     subject: 'xe',
     object: 'xem',
     possessive: 'xyr',
-    possessive_pronoun: 'xyrs',
+    possessivePronoun: 'xyrs',
     reflexive: 'xemself',
   },
 ];
@@ -77,40 +80,51 @@ const PRESETS: PronounPreset[] = [
 
 const TITLE_OPTIONS = ['Mr.', 'Mrs.', 'Ms.', 'Mx.', 'Dr.', 'Prof.'];
 
+type Visibility = 'private' | 'team' | 'internal' | 'public';
+
 const VISIBILITY_OPTIONS: {
   value: Visibility;
   label: string;
   description: string;
 }[] = [
-  {
-    value: 'private',
-    label: 'Private',
-    description: 'Only you can see your pronouns',
-  },
-  {
-    value: 'team',
-    label: 'Team',
-    description: 'Visible to members of your team',
-  },
-  {
-    value: 'internal',
-    label: 'Internal',
-    description: 'Visible to everyone in the organisation',
-  },
-  {
-    value: 'public',
-    label: 'Public',
-    description: 'Visible to anyone, including external contacts',
-  },
-];
+    {
+      value: 'private',
+      label: 'Private',
+      description: 'Only you can see your pronouns',
+    },
+    {
+      value: 'team',
+      label: 'Team',
+      description: 'Visible to members of your team',
+    },
+    {
+      value: 'internal',
+      label: 'Internal',
+      description: 'Visible to everyone in the organisation',
+    },
+    {
+      value: 'public',
+      label: 'Public',
+      description: 'Visible to anyone, including external contacts',
+    },
+  ];
 
-const EMPTY_PRONOUN_SET: Omit<PronounSet, 'id'> = {
+interface PronounSet {
+  subject: string;
+  object: string;
+  possessive: string;
+  possessivePronoun: string;
+  reflexive: string;
+  isPrimary: boolean;
+}
+
+const EMPTY_PRONOUN_SET: PronounSet = {
   subject: '',
   object: '',
   possessive: '',
-  possessive_pronoun: '',
+  possessivePronoun: '',
   reflexive: '',
-  is_primary: false,
+  isPrimary: false,
 };
 
 /* ------------------------------------------------------------------ */
@@ -118,63 +132,71 @@ const EMPTY_PRONOUN_SET: Omit<PronounSet, 'id'> = {
 /* ------------------------------------------------------------------ */
 
 export default function MyProfilePage() {
-  const { user } = useAuth();
+  const { user, loading: userLoading } = useCurrentUser();
 
   /* ── State ──────────────────────────────────────────────────────── */
-  const [loading, setLoading] = useState(true);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [success, setSuccess] = useState<string | null>(null);
-  const [identity, setIdentity] = useState<Identity | null>(null);
+  const [identityId, setIdentityId] = useState<Id<"identities"> | null>(null);
+  const [showNeoPronounPicker, setShowNeoPronounPicker] = useState(false);
 
   // Form fields
   const [displayName, setDisplayName] = useState('');
   const [title, setTitle] = useState<string | null>(null);
   const [visibility, setVisibility] = useState<Visibility>('private');
-  const [pronounSets, setPronounSets] = useState<Omit<PronounSet, 'id'>[]>([
-    { ...EMPTY_PRONOUN_SET, is_primary: true },
+  const [pronounSets, setPronounSets] = useState<PronounSet[]>([
+    { ...EMPTY_PRONOUN_SET, isPrimary: true },
   ]);
+
+  // Convex hooks
+  const identity = useQuery(
+    api.identities.getIdentityByAccount,
+    user?.id ? { accountId: user.id as Id<"accounts"> } : "skip"
+  );
+  const createIdentity = useMutation(api.identities.createIdentity);
+  const updateIdentityName = useMutation(api.identities.updateIdentity);
+  const updatePronounSets = useMutation(api.identities.updatePronounSets);
+  const updatePreferences = useMutation(api.identities.updatePreferences);
 
   /* ── Load identity ──────────────────────────────────────────────── */
   useEffect(() => {
     if (!user) return;
 
-    if (user.identity_id) {
-      identities
-        .get(user.identity_id)
-        .then((data) => {
-          setIdentity(data);
-          setDisplayName(data.display_name);
-          setTitle(data.preference?.title ?? null);
-          setVisibility(data.preference?.visibility ?? 'private');
-          setPronounSets(
-            data.pronoun_sets.length > 0
-              ? data.pronoun_sets.map(({ id, ...rest }) => rest)
-              : [{ ...EMPTY_PRONOUN_SET, is_primary: true }],
-          );
-        })
-        .catch((err: any) =>
-          setError(err.message ?? 'Failed to load profile'),
-        )
-        .finally(() => setLoading(false));
+    if (identity) {
+      setIdentityId(identity._id);
+      setDisplayName(identity.displayName);
+      setTitle(identity.preference?.title ?? null);
+      setVisibility(identity.preference?.visibility ?? 'private');
+      setPronounSets(
+        identity.pronounSets.length > 0
+          ? identity.pronounSets.map((ps: Doc<'pronounSets'>) => ({
+            subject: ps.subject,
+            object: ps.object,
+            possessive: ps.possessive,
+            possessivePronoun: ps.possessivePronoun,
+            reflexive: ps.reflexive,
+            isPrimary: ps.isPrimary,
+          }))
+          : [{ ...EMPTY_PRONOUN_SET, isPrimary: true }]
+      );
     } else {
-      setDisplayName(user.display_name);
-      setLoading(false);
+      setDisplayName(user.name || user.email || '');
     }
-  }, [user]);
+  }, [user, identity]);
 
   /* ── Pronoun set helpers ────────────────────────────────────────── */
   const updateSet = (
     idx: number,
-    field: keyof Omit<PronounSet, 'id'>,
+    field: keyof PronounSet,
     value: string | boolean,
   ) => {
     setPronounSets((prev) => {
       const next = [...prev];
       next[idx] = { ...next[idx], [field]: value };
-      if (field === 'is_primary' && value === true) {
+      if (field === 'isPrimary' && value === true) {
         next.forEach((s, i) => {
-          if (i !== idx) s.is_primary = false;
+          if (i !== idx) s.isPrimary = false;
         });
       }
       return next;
@@ -197,7 +219,7 @@ export default function MyProfilePage() {
       !pronounSets[0].subject &&
       !pronounSets[0].object
     ) {
-      setPronounSets([{ ...fields, is_primary: true }]);
+      setPronounSets([{ ...fields, isPrimary: true }]);
     } else {
       // Check if already added
       const exists = pronounSets.some(
@@ -206,7 +228,7 @@ export default function MyProfilePage() {
       if (!exists) {
         setPronounSets((prev) => [
           ...prev,
-          { ...fields, is_primary: prev.length === 0 },
+          { ...fields, isPrimary: prev.length === 0 },
         ]);
       }
     }
@@ -220,36 +242,37 @@ export default function MyProfilePage() {
     setSuccess(null);
 
     try {
-      if (identity) {
+      if (identityId) {
         // Update existing identity
-        await identities.update(identity.id, { display_name: displayName });
-        await identities.replacePronouns(identity.id, pronounSets);
-        await identities.updatePreferences(identity.id, {
-          title,
-          visibility,
-          language_preference: identity.preference?.language_preference ?? null,
+        await updateIdentityName({
+          identityId,
+          displayName,
         });
-        // Refresh
-        const updated = await identities.get(identity.id);
-        setIdentity(updated);
+        await updatePronounSets({
+          identityId,
+          pronounSets,
+        });
+        await updatePreferences({
+          identityId,
+          title: title as any,
+          visibility: visibility as any,
+        });
         setSuccess('Profile updated successfully!');
       } else {
         // Create new identity
-        const created = await identities.create({
+        const createdId = await createIdentity({
+          accountId: user.id as Id<"accounts">,
           email: user.email,
-          display_name: displayName,
-          pronoun_sets: pronounSets,
-          preference: {
-            title,
-            visibility,
-            language_preference: null,
-          },
+          displayName,
+          pronounSets,
+          title: title as any,
+          visibility: visibility as any,
         });
-        setIdentity(created);
+        setIdentityId(createdId);
         setSuccess('Profile created successfully!');
       }
     } catch (err: any) {
-      setError(err.message ?? 'Failed to save profile');
+      setError(err instanceof Error ? err.message : 'Failed to save profile');
     } finally {
       setSaving(false);
       // Auto-hide success after 4s
@@ -259,7 +282,7 @@ export default function MyProfilePage() {
 
   /* ── Preview sentences ──────────────────────────────────────────── */
   const primarySet = useMemo(
-    () => pronounSets.find((s) => s.is_primary) ?? pronounSets[0],
+    () => pronounSets.find((s) => s.isPrimary) ?? pronounSets[0],
     [pronounSets],
   );
 
@@ -271,13 +294,13 @@ export default function MyProfilePage() {
       `${s.subject.charAt(0).toUpperCase() + s.subject.slice(1)} is joining the meeting.`,
       `Please send the report to ${s.object}.`,
       `This is ${s.possessive} desk.`,
-      `The idea was ${s.possessive_pronoun}.`,
+      `The idea was ${s.possessivePronoun}.`,
       `${name} did it ${s.reflexive}.`,
     ];
   }, [primarySet, displayName]);
 
   /* ── Loading state ──────────────────────────────────────────────── */
-  if (loading) {
+  if (userLoading) {
     return (
       <div className="flex items-center justify-center py-20 text-text-muted">
         <Loader2 className="animate-spin mr-2" size={20} />
@@ -312,7 +335,7 @@ export default function MyProfilePage() {
       )}
 
       {/* Setup banner when no identity */}
-      {!identity && (
+      {!identityId && (
         <div className="bg-blue-bg border border-blue/30 rounded-xl p-5 flex items-start gap-4">
           <div className="w-10 h-10 rounded-full bg-blue/20 flex items-center justify-center shrink-0">
             <User size={20} className="text-blue" />
@@ -352,6 +375,8 @@ export default function MyProfilePage() {
                 Email
               </label>
               <input
+                title="Email"
+                placeholder="person@company.com"
                 type="email"
                 value={user?.email ?? ''}
                 readOnly
@@ -365,6 +390,7 @@ export default function MyProfilePage() {
         <div className="bg-surface border border-border rounded-xl p-5 space-y-4">
           <h2 className="text-sm font-semibold text-text">Title</h2>
           <select
+            title="Title"
             value={title ?? ''}
             onChange={(e) => setTitle(e.target.value || null)}
             className="w-full sm:w-48 bg-bg border border-border rounded-lg px-3 py-2.5 text-sm text-text focus:outline-none focus:border-accent"
@@ -388,11 +414,10 @@ export default function MyProfilePage() {
             {VISIBILITY_OPTIONS.map((opt) => (
               <label
                 key={opt.value}
-                className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${
-                  visibility === opt.value
-                    ? 'bg-accent-glow border-accent/40'
-                    : 'bg-bg border-border hover:border-border/80'
-                }`}
+                className={`flex items-start gap-3 p-3 rounded-lg border cursor-pointer transition-colors ${visibility === opt.value
+                  ? 'bg-accent-glow border-accent/40'
+                  : 'bg-bg border-border hover:border-border/80'
+                  }`}
               >
                 <input
                   type="radio"
@@ -433,7 +458,16 @@ export default function MyProfilePage() {
 
           {/* Quick-pick presets */}
           <div>
-            <p className="text-xs text-text-muted mb-2">Quick pick:</p>
+            <div className="flex items-center justify-between mb-2">
+              <p className="text-xs text-text-muted">Quick pick:</p>
+              <button
+                onClick={() => setShowNeoPronounPicker(true)}
+                className="inline-flex items-center gap-1.5 px-3 py-1.5 bg-secondary hover:bg-secondary-light text-white rounded-lg text-xs font-medium transition-colors"
+              >
+                <BookOpen size={14} />
+                Browse Neo-Pronouns
+              </button>
+            </div>
             <div className="flex flex-wrap gap-2">
               {PRESETS.map((preset) => {
                 const isActive = pronounSets.some(
@@ -445,11 +479,10 @@ export default function MyProfilePage() {
                   <button
                     key={preset.label}
                     onClick={() => applyPreset(preset)}
-                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${
-                      isActive
-                        ? 'bg-accent/15 text-accent-light border-accent/30'
-                        : 'bg-bg text-text-muted border-border hover:border-accent/30 hover:text-text'
-                    }`}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-colors ${isActive
+                      ? 'bg-accent/15 text-accent-light border-accent/30'
+                      : 'bg-bg text-text-muted border-border hover:border-accent/30 hover:text-text'
+                      }`}
                   >
                     {preset.label}
                   </button>
@@ -463,9 +496,8 @@ export default function MyProfilePage() {
             {pronounSets.map((ps, idx) => (
               <div
                 key={idx}
-                className={`bg-bg border rounded-lg p-4 space-y-3 ${
-                  ps.is_primary ? 'border-accent/40' : 'border-border'
-                }`}
+                className={`bg-bg border rounded-lg p-4 space-y-3 ${ps.isPrimary ? 'border-accent/40' : 'border-border'
+                  }`}
               >
                 <div className="flex items-center justify-between">
                   <div className="flex items-center gap-3">
@@ -475,14 +507,14 @@ export default function MyProfilePage() {
                           ? `${ps.subject}/${ps.object}`
                           : `Set ${idx + 1}`
                       }
-                      isPrimary={ps.is_primary}
+                      isPrimary={ps.isPrimary}
                     />
                     <label className="flex items-center gap-1.5 text-xs text-text-muted cursor-pointer">
                       <input
                         type="checkbox"
-                        checked={ps.is_primary}
+                        checked={ps.isPrimary}
                         onChange={(e) =>
-                          updateSet(idx, 'is_primary', e.target.checked)
+                          updateSet(idx, 'isPrimary', e.target.checked)
                         }
                         className="accent-accent"
                       />
@@ -506,18 +538,18 @@ export default function MyProfilePage() {
                       ['subject', 'Subject (e.g. they)'],
                       ['object', 'Object (e.g. them)'],
                       ['possessive', 'Possessive (e.g. their)'],
-                      ['possessive_pronoun', 'Poss. Pronoun (e.g. theirs)'],
+                      ['possessivePronoun', 'Poss. Pronoun (e.g. theirs)'],
                       ['reflexive', 'Reflexive (e.g. themselves)'],
                     ] as const
                   ).map(([field, placeholder]) => (
                     <div key={field}>
                       <label className="block text-[11px] text-text-muted mb-1 capitalize">
-                        {field.replace('_', ' ')}
+                        {field.replace(/([A-Z])/g, ' $1').toLowerCase()}
                       </label>
                       <input
                         type="text"
-                        value={(ps as any)[field]}
-                        onChange={(e) => updateSet(idx, field, e.target.value)}
+                        value={ps[field as keyof PronounSet] as string}
+                        onChange={(e) => updateSet(idx, field as keyof PronounSet, e.target.value)}
                         placeholder={placeholder}
                         className="w-full bg-surface border border-border rounded-md px-2.5 py-1.5 text-sm text-text placeholder:text-text-muted/40 focus:outline-none focus:border-accent"
                       />
@@ -545,7 +577,7 @@ export default function MyProfilePage() {
                   <PronounBadge
                     key={idx}
                     label={`${s.subject}/${s.object}`}
-                    isPrimary={s.is_primary}
+                    isPrimary={s.isPrimary}
                   />
                 ))}
             </div>
@@ -579,12 +611,30 @@ export default function MyProfilePage() {
             )}
             {saving
               ? 'Saving…'
-              : identity
+              : identityId
                 ? 'Save Changes'
                 : 'Create Profile'}
           </button>
         </div>
       </div>
+
+      {/* Neo-Pronoun Picker Modal */}
+      {showNeoPronounPicker && (
+        <NeoPronounPicker
+          onSelect={(pronoun) => {
+            applyPreset({
+              label: pronoun.label || `${pronoun.subject}/${pronoun.object}`,
+              subject: pronoun.subject,
+              object: pronoun.object,
+              possessive: pronoun.possessive,
+              possessivePronoun: pronoun.possessive_pronoun,
+              reflexive: pronoun.reflexive,
+            });
+            setShowNeoPronounPicker(false);
+          }}
+          onClose={() => setShowNeoPronounPicker(false)}
+        />
+      )}
     </div>
   );
 }

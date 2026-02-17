@@ -2,7 +2,10 @@
 /*  API Client — wraps fetch with JWT injection                       */
 /* ------------------------------------------------------------------ */
 
-const BASE = '/api/v1';
+// Use VITE_API_BASE for production deployments, fallback to proxied /api/v1 for local dev
+const BASE = import.meta.env.VITE_API_BASE
+  ? `${import.meta.env.VITE_API_BASE}/api/v1`
+  : '/api/v1';
 
 function getToken(): string | null {
   return localStorage.getItem('inklude_token');

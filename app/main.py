@@ -22,16 +22,28 @@ STATIC_DIR = Path(__file__).parent / "static"
 async def lifespan(application: FastAPI):
     """Startup / shutdown lifecycle."""
     logger.info("Inklude API starting up")
+    # #region agent log
+    import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/main.py:24","message":"Backend starting","data":{"database_url":settings.database_url[:50],"frontend_url":settings.frontend_url},"hypothesisId":"D"}) + '\n')
+    # #endregion
 
     # Auto-create tables for SQLite (local dev convenience)
     if "sqlite" in settings.database_url:
-        from app.database import Base, engine
-        # Import models so they register with Base metadata
-        import app.models.identity  # noqa: F401
+        try:
+            from app.database import Base, engine
+            # Import models so they register with Base metadata
+            import app.models.identity  # noqa: F401
 
-        async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
-        logger.info("SQLite tables created.")
+            async with engine.begin() as conn:
+                await conn.run_sync(Base.metadata.create_all)
+            logger.info("SQLite tables created.")
+            # #region agent log
+            import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/main.py:38","message":"SQLite tables created successfully","data":{},"hypothesisId":"B,D"}) + '\n')
+            # #endregion
+        except Exception as e:
+            # #region agent log
+            import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/main.py:43","message":"Failed to create SQLite tables","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"B,D"}) + '\n')
+            # #endregion
+            raise
 
     yield
     logger.info("Inklude API shutting down")
