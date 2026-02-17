@@ -41,12 +41,18 @@ class MeResponse(BaseModel):
 @router.get("/login/google")
 async def login_google(redirect_url: str | None = None):
     """Redirect user to Google OAuth consent screen."""
+    # #region agent log
+    import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/api/auth.py:42","message":"Login endpoint called","data":{"redirect_url":redirect_url,"has_client_id":bool(settings.google_client_id),"has_client_secret":bool(settings.google_client_secret)},"hypothesisId":"A"}) + '\n')
+    # #endregion
     if not settings.google_client_id:
         raise HTTPException(
             status_code=501,
             detail="Google OAuth is not configured. Set GOOGLE_CLIENT_ID and GOOGLE_CLIENT_SECRET.",
         )
     url = auth_service.google_login_url(state=redirect_url)
+    # #region agent log
+    import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/api/auth.py:50","message":"Redirecting to Google","data":{"oauth_url":url[:100]},"hypothesisId":"A"}) + '\n')
+    # #endregion
     return RedirectResponse(url=url)
 
 
@@ -57,9 +63,18 @@ async def callback_google(
     session: AsyncSession = Depends(get_session),
 ):
     """Handle Google OAuth callback, issue JWT, redirect to frontend."""
+    # #region agent log
+    import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/api/auth.py:59","message":"Callback endpoint called","data":{"has_code":bool(code),"state":state},"hypothesisId":"C"}) + '\n')
+    # #endregion
     try:
         account = await auth_service.google_callback(code, session)
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/api/auth.py:64","message":"Account retrieved/created","data":{"account_id":str(account.id),"email":account.email},"hypothesisId":"C"}) + '\n')
+        # #endregion
     except Exception as e:
+        # #region agent log
+        import json; open('/Users/sagespellman/:code/Inklude/.cursor/debug.log', 'a').write(json.dumps({"id":f"log_{__import__('time').time_ns()}","timestamp":__import__('time').time()*1000,"location":"app/api/auth.py:68","message":"OAuth callback error","data":{"error_type":type(e).__name__,"error_msg":str(e)},"hypothesisId":"C"}) + '\n')
+        # #endregion
         raise HTTPException(status_code=400, detail=f"OAuth error: {str(e)}")
 
     token = auth_service.create_jwt(account)
